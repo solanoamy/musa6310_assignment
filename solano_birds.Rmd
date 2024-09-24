@@ -1,0 +1,184 @@
+---
+title: "Homework 2"
+author: "Amy Solano"
+date: "2024-09-24"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=TRUE,
+                      message=FALSE,
+                      warning=FALSE)
+
+options(scipen=999)
+
+
+library(tidyverse)
+library(tidycensus)
+library(tigris)
+library(sf)
+library(gridExtra)
+library(grid)
+library(knitr)
+library(kableExtra)
+library(pander)
+library(rmarkdown)
+library(mapview)
+library(gghighlight)
+```
+
+``` {r}
+
+#read in data
+neighborhoods <- 
+  st_read("https://raw.githubusercontent.com/opendataphilly/open-geo-data/refs/heads/master/philadelphia-neighborhoods/philadelphia-neighborhoods.geojson") %>%
+  st_make_valid(neighborhoods)
+
+neighborhoods <- st_transform(neighborhoods,4326)
+
+DOR_parcels <- st_read("data/DOR_Parcel.geojson")
+DOR_parcels <- st_make_valid(DOR_parcels) %>%
+  dplyr::select(OBJECTID,PARCEL, STATUS, STDES, ADDR_STD,Shape__Area, Shape__Length, geometry)
+
+viols16 <- read_csv("data/streets_code_violation_notices_2016.csv")
+viols17 <- read_csv("data/streets_code_violation_notices_2017.csv")
+viols18 <- read_csv("data/streets_code_violation_notices_2018.csv")
+viols19 <- read_csv("data/streets_code_violation_notices_2019.csv")
+viols20 <- read_csv("data/streets_code_violation_notices_2020.csv")
+
+#merge the violation datasets for the different years
+viols_16_20 <- rbind(viols16, viols17, viols18, viols19, viols20) %>%
+  dplyr::select(objectid, property_based, violation_code, violation_description,
+                fine_amount, comments, st_name, lat, lng) %>%
+  drop_na()
+
+
+
+
+```
+
+
+## Street code violations
+
+Does where you live in Philly have a lot of street code violations? Should you care?
+What is a street code violation? What can it tell me about where I live?
+
+
+Goal: convince people that they should care about their streets
+One street is not isolated - what can a good street do for my health?
+
+
+
+
+
+``` {r}
+parcels_in_neighborhood <- st_join(DOR_parcels, neighborhoods,
+                      join = st_within, left=FALSE)
+
+parcels_group <- parcels_in_neighborhood %>%
+  group_by(MAPNAME) %>% summarize(total_count=n(),
+                                  .groups = "drop")
+
+```
+
+
+Exploratory analysis of the number of parcels in Philadelphia neighborhoods (all using [OpenDataPhilly.org](https://opendataphilly.org/). Want to make sure we are accurately depicting how many people/places there are when thinking about the street code violations in a certain neighborhood. Using parcel data, need to explain what a "parcel" is and/or reframe it entirely to make it more accessible. parcel data includes apartment buildings. Will eventually use some measure of the parcel/violation ratio per neighborhood. Higher ratio, more violations per address.
+
+
+``` {r}
+
+ggplot(parcels_group) +
+  geom_sf(aes(fill=total_count, color=total_count))+
+#  geom_sf_label(aes(label = MAPNAME), size=1)+
+  scale_fill_gradient(low = "azure2", high = "#172578", 
+                      name="Number of Parcels", guide = "legend")+
+  scale_color_gradient(low = "azure2", high = "#172578", guide="none")+
+  labs(title = "Number of parcels in Philadelphia neighborhoods")+
+  theme_minimal()
+
+```
+
+``` {r}
+
+viols_sf <- viols_16_20 %>% 
+  st_as_sf(coords = c('lng', 'lat')) %>%
+  st_set_crs(4326)
+
+```
+
+
+``` {r}
+
+violations_in_neighborhood <- st_join(viols_sf, neighborhoods,
+                      join = st_within, left=FALSE)
+
+viols_group <- violations_in_neighborhood %>%
+  group_by(MAPNAME) %>% summarize(total_count=n(),
+                                  .groups = "drop")
+```
+
+
+``` {r}
+ggplot(viols_group) +
+  geom_sf(aes(fill=total_count, color=total_count))+
+#  geom_sf_label(aes(label = MAPNAME), size=1)+
+  scale_fill_gradient(low = "azure2", high = "#172578",
+                      name="Number of Violations", guide = "legend")+
+  scale_color_gradient(low = "azure2", high = "#172578", guide="none")+
+  labs(title = "Street Code Violations across Philadelphia neighborhoods")+
+  theme_minimal()
+```
+
+
+Visualizing the violations themselves. Need to adjust the scale on this map, but this one has some clear neighborhoods where there are more violations.  Following chart and plots try to highlight exactly which neighborhoods those are.
+
+
+
+``` {r}
+
+dropgeo_viols <- viols_group %>%
+  st_drop_geometry() %>%
+  mutate(Neighborhood=MAPNAME, Violations=total_count) %>%
+  dplyr::select(Neighborhood, Violations) %>%
+  arrange(desc(Violations)) %>%
+  head(5)
+
+kable(dropgeo_viols) 
+
+
+
+```
+highlight these on the map?
+
+
+
+``` {r}
+ggplot(viols_group) +
+  geom_sf(aes(fill=total_count, color=total_count))+
+  scale_fill_gradient(low = "azure2", high = "#172578",
+                      name="Number of Violations", guide = "legend")+
+  scale_color_gradient(low = "azure2", high = "#172578", guide="none")+
+  gghighlight((total_count > 9000))+
+  geom_sf_label(aes(label=MAPNAME), hjust=1, size=2)+
+  labs(title = "Philadelphia neighborhoods with the most street code violations")+
+  theme_minimal()
+```
+
+
+## This story in the future
+
+
+In the future, I would need to be more responsible early on and add in data for violation code to more clearly categorize violations. And front loading so that I can focus on building a better story. I don't have much of either today.
+
+
+Idea: Game it? What do you think the most common street code violation is in on your Philadelphia neighborhood? Did you guess right?
+
+What is common across neighborhoods?
+
+
+Who uses the street?
+
+I would like to draw these insights, not just on a map, but find a way to make them more personal. A regular person might not care about the city, just about their neighborhood. Finding a way to that personalization will be good to get a person interested and help them understand the message without being put off by data that doesn't directly apply to them.
+
+
+
